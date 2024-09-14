@@ -1,6 +1,6 @@
 #pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
 
-namespace ktsu.io.FuzzySearch;
+namespace ktsu.FuzzySearch;
 
 public static class Fuzzy
 {
