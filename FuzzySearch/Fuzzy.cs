@@ -27,10 +27,10 @@ public static class Fuzzy
 	internal const int camelCaseMatchBonus = 10;
 
 	/// <summary>The penalty for each unmatched character at the beginning of the string.</summary>
-	internal const int unmatchedPrefixLetterPenalty = 0;
+	internal const int unmatchedPrefixLetterPenalty = -1;
 
 	/// <summary>The maximum prefix penalty that can be applied.</summary>
-	internal const int maxPrefixPenalty = 0;
+	internal const int maxPrefixPenalty = -5;
 
 	/// <summary>The penalty for each unmatched character in the string.</summary>
 	internal const int unmatchedLetterPenalty = -1;
@@ -119,8 +119,6 @@ public static class Fuzzy
 		int? bestLetterIdx = null;
 		int bestLetterScore = 0;
 
-		List<int> matchedIndices = [];
-
 		// Loop over characters in subject
 		while (strIdx != strLength)
 		{
@@ -139,7 +137,6 @@ public static class Fuzzy
 			if (bestLetterIdx is not null && (advanced || patternRepeat))
 			{
 				score += bestLetterScore;
-				matchedIndices.Add((int)bestLetterIdx);
 				bestLetter = null;
 				bestLower = null;
 				bestLetterIdx = null;
@@ -196,7 +193,6 @@ public static class Fuzzy
 		if (bestLetter is not null && bestLetterIdx is not null)
 		{
 			score += bestLetterScore;
-			matchedIndices.Add((int)bestLetterIdx);
 		}
 
 		wholePatternIsPresent = patternIdx == patternLength;
