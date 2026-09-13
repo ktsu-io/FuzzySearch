@@ -218,6 +218,22 @@ public class FuzzyTests
 		Assert.IsGreaterThanOrEqualTo(Fuzzy.camelCaseMatchBonus, score, "Score should include camelCase bonus");
 	}
 
+	[TestMethod]
+	public void Contains_WithScore_LatePrefixMatch_ScoresLowerThanStartMatch()
+	{
+		// Arrange
+		string pattern = "foo";
+
+		// Act
+		bool earlyResult = Fuzzy.Contains("foo", pattern, out int earlyScore);
+		bool lateResult = Fuzzy.Contains("xxxxxxxxxxfoo", pattern, out int lateScore);
+
+		// Assert
+		Assert.IsTrue(earlyResult, "Start-position match should return true.");
+		Assert.IsTrue(lateResult, "Late-position match should return true.");
+		Assert.IsGreaterThan(lateScore, earlyScore, "Match at the start should score higher than a late prefix match.");
+	}
+
 	#endregion
 
 	#region Apply Bonuses Tests
@@ -329,7 +345,23 @@ public class FuzzyTests
 		int initialScore = 10;
 		int patternIdx = 0;
 		int strIdx = 3;  // 3 chars before first match
-		int expectedPenalty = Math.Max(strIdx * Fuzzy.unmatchedPrefixLetterPenalty, Fuzzy.maxPrefixPenalty);
+		int expectedPenalty = -3;
+
+		// Act
+		int result = Fuzzy.PenalizeNonPatternCharacters(initialScore, patternIdx, strIdx);
+
+		// Assert
+		Assert.AreEqual(initialScore + expectedPenalty, result);
+	}
+
+	[TestMethod]
+	public void PenalizeNonPatternCharacters_FirstPatternChar_CapsPrefixPenalty()
+	{
+		// Arrange
+		int initialScore = 10;
+		int patternIdx = 0;
+		int strIdx = 10;
+		int expectedPenalty = -5;
 
 		// Act
 		int result = Fuzzy.PenalizeNonPatternCharacters(initialScore, patternIdx, strIdx);
