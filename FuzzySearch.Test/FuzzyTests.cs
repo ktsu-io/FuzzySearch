@@ -451,6 +451,70 @@ public class FuzzyTests
 
 	#endregion
 
+	#region Unicode Normalization Tests
+
+	// "café" precomposed (NFC): the accented letter is a single code point U+00E9.
+	private const string PrecomposedCafe = "café";
+
+	// "café" decomposed (NFD): a plain 'e' followed by U+0301 COMBINING ACUTE ACCENT.
+	private const string DecomposedCafe = "café";
+
+	[TestMethod]
+	public void Contains_DecomposedSubject_MatchesPrecomposedPattern()
+	{
+		// Act
+		bool result = Fuzzy.Contains(DecomposedCafe, PrecomposedCafe);
+
+		// Assert
+		Assert.IsTrue(result, "A decomposed (NFD) subject should match its canonically equivalent precomposed (NFC) pattern.");
+	}
+
+	[TestMethod]
+	public void Contains_PrecomposedSubject_MatchesDecomposedPattern()
+	{
+		// Act
+		bool result = Fuzzy.Contains(PrecomposedCafe, DecomposedCafe);
+
+		// Assert
+		Assert.IsTrue(result, "A precomposed (NFC) subject should match its canonically equivalent decomposed (NFD) pattern.");
+	}
+
+	[TestMethod]
+	public void Contains_WithScore_CanonicallyEquivalentForms_ScoreIdentically()
+	{
+		// Act
+		Fuzzy.Contains(PrecomposedCafe, PrecomposedCafe, out int precomposedScore);
+		Fuzzy.Contains(DecomposedCafe, PrecomposedCafe, out int decomposedScore);
+
+		// Assert
+		Assert.AreEqual(precomposedScore, decomposedScore, "Canonically equivalent text should produce the same score.");
+	}
+
+	[TestMethod]
+	public void Contains_DecomposedSubject_StillRejectsNonMatchingPattern()
+	{
+		// Act
+		bool result = Fuzzy.Contains(DecomposedCafe, "zzz");
+
+		// Assert
+		Assert.IsFalse(result, "Normalization should not turn a non-match into a match.");
+	}
+
+	[TestMethod]
+	public void Contains_MalformedUnicode_ComparesAsGivenWithoutThrowing()
+	{
+		// Arrange: a lone high surrogate is not well-formed Unicode and cannot be normalized.
+		string subject = "caf\uD83D";
+
+		// Act
+		bool result = Fuzzy.Contains(subject, "caf");
+
+		// Assert
+		Assert.IsTrue(result, "Text that cannot be normalized should still be matched as it was given.");
+	}
+
+	#endregion
+
 	#region Integration Tests
 
 	[TestMethod]
