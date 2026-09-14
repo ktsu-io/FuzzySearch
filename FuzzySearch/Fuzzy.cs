@@ -1,6 +1,7 @@
 // Copyright (c) 2023-2026 ktsu-dev contributors
 
 using System.Runtime.CompilerServices;
+using System.Text;
 
 [assembly: InternalsVisibleTo("ktsu.FuzzySearch.Test")]
 
@@ -12,8 +13,16 @@ namespace ktsu.FuzzySearch;
 /// Provides fuzzy string matching capabilities, allowing for approximate string matching and scoring.
 /// </summary>
 /// <remarks>
+/// <para>
 /// This implementation uses a scoring system that rewards consecutive matches, matches after separator characters,
 /// and matches across camelCase boundaries, while penalizing unmatched characters.
+/// </para>
+/// <para>
+/// Input is normalized to <see cref="NormalizationForm.FormC"/> before matching, so canonically equivalent text
+/// matches whether it is precomposed (NFC) or decomposed (NFD). Normalization relies on the runtime's globalization
+/// data: in an application running with invariant globalization enabled, <see cref="string.Normalize(NormalizationForm)"/>
+/// is a no-op and the two forms of the same text will not match.
+/// </para>
 /// </remarks>
 public static class Fuzzy
 {
@@ -43,7 +52,41 @@ public static class Fuzzy
 	/// <returns>
 	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
 	/// </returns>
-	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern)
+	/// <remarks>
+	/// Subject and pattern are normalized to <see cref="NormalizationForm.FormC"/> before comparison, so canonically
+	/// equivalent text matches regardless of whether it is precomposed (NFC) or decomposed (NFD).
+	/// </remarks>
+	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern) =>
+		ContainsCore(NormalizeForComparison(subject), NormalizeForComparison(pattern));
+
+	/// <summary>
+	/// Determines whether the specified subject contains all characters from the pattern in sequence, and calculates a match score.
+	/// </summary>
+	/// <param name="subject">The span of characters to search within.</param>
+	/// <param name="pattern">The sequence of characters to search for.</param>
+	/// <param name="outScore">
+	/// When this method returns, contains the calculated match score if the pattern is found; otherwise,
+	/// the score reflects how close the match was.
+	/// </param>
+	/// <returns>
+	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
+	/// </returns>
+	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out int outScore)
+	{
+		outScore = CalculateScore(subject, pattern, out bool wholePatternPresent);
+		return wholePatternPresent;
+	}
+
+	/// <summary>
+	/// Determines whether the specified subject contains all characters from the pattern in sequence, assuming both
+	/// spans are already normalized to a common form.
+	/// </summary>
+	/// <param name="subject">The span of characters to search within.</param>
+	/// <param name="pattern">The sequence of characters to search for.</param>
+	/// <returns>
+	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
+	/// </returns>
+	internal static bool ContainsCore(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern)
 	{
 		if (pattern.IsEmpty)
 		{
@@ -69,24 +112,6 @@ public static class Fuzzy
 	}
 
 	/// <summary>
-	/// Determines whether the specified subject contains all characters from the pattern in sequence, and calculates a match score.
-	/// </summary>
-	/// <param name="subject">The span of characters to search within.</param>
-	/// <param name="pattern">The sequence of characters to search for.</param>
-	/// <param name="outScore">
-	/// When this method returns, contains the calculated match score if the pattern is found; otherwise,
-	/// the score reflects how close the match was.
-	/// </param>
-	/// <returns>
-	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
-	/// </returns>
-	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out int outScore)
-	{
-		outScore = CalculateScore(subject, pattern, out bool wholePatternPresent);
-		return wholePatternPresent;
-	}
-
-	/// <summary>
 	/// Calculates a fuzzy match score between the subject span and pattern span.
 	/// </summary>
 	/// <param name="subject">The span of characters to search within.</param>
@@ -96,7 +121,25 @@ public static class Fuzzy
 	/// or the pattern is empty and the subject is not; otherwise, <c>false</c>.
 	/// </param>
 	/// <returns>A score representing the quality of the match. Higher scores indicate better matches.</returns>
-	internal static int CalculateScore(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out bool wholePatternIsPresent)
+	/// <remarks>
+	/// Subject and pattern are normalized to <see cref="NormalizationForm.FormC"/> before comparison, so canonically
+	/// equivalent text matches regardless of whether it is precomposed (NFC) or decomposed (NFD).
+	/// </remarks>
+	internal static int CalculateScore(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out bool wholePatternIsPresent) =>
+		CalculateScoreCore(NormalizeForComparison(subject), NormalizeForComparison(pattern), out wholePatternIsPresent);
+
+	/// <summary>
+	/// Calculates a fuzzy match score between the subject span and pattern span, assuming both spans are already
+	/// normalized to a common form.
+	/// </summary>
+	/// <param name="subject">The span of characters to search within.</param>
+	/// <param name="pattern">The sequence of characters to search for.</param>
+	/// <param name="wholePatternIsPresent">
+	/// When this method returns, contains <c>true</c> if the entire pattern was found in the subject,
+	/// or the pattern is empty and the subject is not; otherwise, <c>false</c>.
+	/// </param>
+	/// <returns>A score representing the quality of the match. Higher scores indicate better matches.</returns>
+	internal static int CalculateScoreCore(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out bool wholePatternIsPresent)
 	{
 		if (pattern.IsEmpty)
 		{
@@ -197,6 +240,54 @@ public static class Fuzzy
 
 		wholePatternIsPresent = patternIdx == patternLength;
 		return score;
+	}
+
+	/// <summary>
+	/// Normalizes a span to <see cref="NormalizationForm.FormC"/> so that canonically equivalent text compares equal.
+	/// </summary>
+	/// <param name="value">The span to normalize.</param>
+	/// <returns>
+	/// The normalized text, or <paramref name="value"/> itself when it is already in that form or cannot be normalized.
+	/// </returns>
+	/// <remarks>
+	/// ASCII-only text is always already in <see cref="NormalizationForm.FormC"/>, so the common case is served by a
+	/// scan that allocates nothing. Only text containing a non-ASCII character pays for the conversion.
+	/// </remarks>
+	internal static ReadOnlySpan<char> NormalizeForComparison(ReadOnlySpan<char> value)
+	{
+		if (IsAscii(value))
+		{
+			return value;
+		}
+
+		try
+		{
+			return value.ToString().Normalize(NormalizationForm.FormC).AsSpan();
+		}
+		catch (ArgumentException)
+		{
+			// Text that is not well-formed Unicode (for example a lone surrogate) cannot be normalized.
+			// Compare it as it was given rather than failing the match outright.
+			return value;
+		}
+	}
+
+	/// <summary>
+	/// Determines whether every character in the span is an ASCII character.
+	/// </summary>
+	/// <param name="value">The span to inspect.</param>
+	/// <returns><c>true</c> if the span contains only ASCII characters; otherwise, <c>false</c>.</returns>
+	internal static bool IsAscii(ReadOnlySpan<char> value)
+	{
+		foreach (char c in value)
+		{
+			if (c > 0x7F)
+			{
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/// <summary>

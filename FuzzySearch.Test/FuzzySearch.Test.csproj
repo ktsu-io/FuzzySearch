@@ -6,6 +6,8 @@
     <IsTestProject>true</IsTestProject>
     <TargetFramework>net10.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
+    <!-- Unicode normalization needs globalization data; in invariant mode String.Normalize is a no-op. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
       </PropertyGroup>
 
   <ItemGroup>
