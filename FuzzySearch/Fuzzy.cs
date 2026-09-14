@@ -23,6 +23,10 @@ namespace ktsu.FuzzySearch;
 /// data: in an application running with invariant globalization enabled, <see cref="string.Normalize(NormalizationForm)"/>
 /// is a no-op and the two forms of the same text will not match.
 /// </para>
+/// <para>
+/// Matching advances one Unicode codepoint at a time rather than one UTF-16 code unit at a time, so a surrogate pair
+/// is matched as a whole and an unpaired surrogate cannot match half of an unrelated supplementary-plane character.
+/// </para>
 /// </remarks>
 public static class Fuzzy
 {
@@ -53,8 +57,14 @@ public static class Fuzzy
 	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
 	/// </returns>
 	/// <remarks>
+	/// <para>
 	/// Subject and pattern are normalized to <see cref="NormalizationForm.FormC"/> before comparison, so canonically
 	/// equivalent text matches regardless of whether it is precomposed (NFC) or decomposed (NFD).
+	/// </para>
+	/// <para>
+	/// Comparison advances one Unicode codepoint at a time, so a surrogate pair matches only as a whole and a lone
+	/// surrogate can never match half of an unrelated supplementary-plane character.
+	/// </para>
 	/// </remarks>
 	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern) =>
 		ContainsCore(NormalizeForComparison(subject), NormalizeForComparison(pattern));
@@ -100,12 +110,15 @@ public static class Fuzzy
 
 		while (patternIdx != patternLength && strIdx != strLength)
 		{
-			if (char.ToLowerInvariant(pattern[patternIdx]) == char.ToLowerInvariant(subject[strIdx]))
+			int patternCharLength = CodepointLengthAt(pattern, patternIdx);
+			int strCharLength = CodepointLengthAt(subject, strIdx);
+
+			if (CodepointsEqual(pattern, patternIdx, patternCharLength, subject, strIdx, strCharLength))
 			{
-				++patternIdx;
+				patternIdx += patternCharLength;
 			}
 
-			++strIdx;
+			strIdx += strCharLength;
 		}
 
 		return patternIdx == patternLength;
@@ -122,8 +135,14 @@ public static class Fuzzy
 	/// </param>
 	/// <returns>A score representing the quality of the match. Higher scores indicate better matches.</returns>
 	/// <remarks>
+	/// <para>
 	/// Subject and pattern are normalized to <see cref="NormalizationForm.FormC"/> before comparison, so canonically
 	/// equivalent text matches regardless of whether it is precomposed (NFC) or decomposed (NFD).
+	/// </para>
+	/// <para>
+	/// Scoring advances one Unicode codepoint at a time, so a surrogate pair is scored as a single character and an
+	/// unpaired surrogate cannot match half of an unrelated supplementary-plane character.
+	/// </para>
 	/// </remarks>
 	internal static int CalculateScore(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out bool wholePatternIsPresent) =>
 		CalculateScoreCore(NormalizeForComparison(subject), NormalizeForComparison(pattern), out wholePatternIsPresent);
@@ -156,33 +175,34 @@ public static class Fuzzy
 		bool prevLower = false;
 		bool prevSeparator = true; // true if first letter match gets separator bonus
 
-		// Use "best" matched letter if multiple string letters match the pattern
-		char? bestLetter = null;
-		char? bestLower = null;
+		// Use "best" matched codepoint if multiple subject codepoints match the pattern
 		int? bestLetterIdx = null;
+		int bestLetterLength = 0;
 		int bestLetterScore = 0;
 
-		// Loop over characters in subject
+		// Loop over codepoints in subject
 		while (strIdx != strLength)
 		{
-			char? patternChar = patternIdx != patternLength ? pattern[patternIdx] : null;
-			char strChar = subject[strIdx];
+			bool hasPatternChar = patternIdx != patternLength;
+			int patternCharLength = hasPatternChar ? CodepointLengthAt(pattern, patternIdx) : 0;
+			int strCharLength = CodepointLengthAt(subject, strIdx);
 
-			char? patternLower = patternChar is not null ? char.ToLowerInvariant((char)patternChar) : null;
+			// The leading code unit carries the case and separator properties of the codepoint: a surrogate is
+			// caseless and is never a separator, which is exactly how a supplementary-plane codepoint should behave.
+			char strChar = subject[strIdx];
 			char strLower = char.ToLowerInvariant(strChar);
 			char strUpper = char.ToUpperInvariant(strChar);
 
-			bool nextMatch = patternChar is not null && patternLower == strLower;
-			bool rematch = bestLetter is not null && bestLower == strLower;
+			bool nextMatch = hasPatternChar && CodepointsEqual(pattern, patternIdx, patternCharLength, subject, strIdx, strCharLength);
+			bool rematch = bestLetterIdx is not null && CodepointsEqual(subject, bestLetterIdx.Value, bestLetterLength, subject, strIdx, strCharLength);
 
-			bool advanced = nextMatch && bestLetter is not null;
-			bool patternRepeat = bestLetter is not null && patternChar is not null && bestLower == patternLower;
+			bool advanced = nextMatch && bestLetterIdx is not null;
+			bool patternRepeat = bestLetterIdx is not null && hasPatternChar && CodepointsEqual(subject, bestLetterIdx.Value, bestLetterLength, pattern, patternIdx, patternCharLength);
 			if (bestLetterIdx is not null && (advanced || patternRepeat))
 			{
 				score += bestLetterScore;
-				bestLetter = null;
-				bestLower = null;
 				bestLetterIdx = null;
+				bestLetterLength = 0;
 				bestLetterScore = 0;
 			}
 
@@ -194,24 +214,23 @@ public static class Fuzzy
 
 				newScore = ApplyBonuses(prevMatched, prevLower, prevSeparator, strChar, strLower, strUpper, newScore);
 
-				// Update pattern index IF the next pattern letter was matched
+				// Update pattern index IF the next pattern codepoint was matched
 				if (nextMatch)
 				{
-					++patternIdx;
+					patternIdx += patternCharLength;
 				}
 
 				// Update best letter in stringToSearch which may be for a "next" letter or a "rematch"
 				if (newScore >= bestLetterScore)
 				{
 					// Apply penalty for now skipped letter
-					if (bestLetter is not null)
+					if (bestLetterIdx is not null)
 					{
 						score += unmatchedLetterPenalty;
 					}
 
-					bestLetter = strChar;
-					bestLower = char.ToLowerInvariant(strChar);
 					bestLetterIdx = strIdx;
+					bestLetterLength = strCharLength;
 					bestLetterScore = newScore;
 				}
 
@@ -229,17 +248,59 @@ public static class Fuzzy
 			prevLower = strChar == strLower && isLetter;
 			prevSeparator = strChar is '_' or ' ';
 
-			++strIdx;
+			strIdx += strCharLength;
 		}
 
 		// Apply score for last match
-		if (bestLetter is not null && bestLetterIdx is not null)
+		if (bestLetterIdx is not null)
 		{
 			score += bestLetterScore;
 		}
 
 		wholePatternIsPresent = patternIdx == patternLength;
 		return score;
+	}
+
+	/// <summary>
+	/// Gets the number of UTF-16 code units occupied by the Unicode codepoint starting at the given index.
+	/// </summary>
+	/// <param name="value">The span to inspect.</param>
+	/// <param name="index">The index of the first code unit of the codepoint.</param>
+	/// <returns>
+	/// <c>2</c> when the index starts a well-formed surrogate pair; otherwise <c>1</c>. An unpaired surrogate is a
+	/// codepoint of its own, so it is never treated as half of a neighbouring character.
+	/// </returns>
+	internal static int CodepointLengthAt(ReadOnlySpan<char> value, int index) =>
+		index + 1 < value.Length && char.IsHighSurrogate(value[index]) && char.IsLowSurrogate(value[index + 1])
+			? 2
+			: 1;
+
+	/// <summary>
+	/// Determines whether the codepoints at the given indices are the same, ignoring case.
+	/// </summary>
+	/// <param name="left">The span holding the first codepoint.</param>
+	/// <param name="leftIndex">The index of the first code unit of the codepoint in <paramref name="left"/>.</param>
+	/// <param name="leftLength">The length in code units of the codepoint in <paramref name="left"/>.</param>
+	/// <param name="right">The span holding the second codepoint.</param>
+	/// <param name="rightIndex">The index of the first code unit of the codepoint in <paramref name="right"/>.</param>
+	/// <param name="rightLength">The length in code units of the codepoint in <paramref name="right"/>.</param>
+	/// <returns><c>true</c> if the two codepoints are equal ignoring case; otherwise, <c>false</c>.</returns>
+	/// <remarks>
+	/// Codepoints of differing code-unit length are never equal, which is what stops an unpaired surrogate from
+	/// matching one half of an unrelated surrogate pair. Supplementary-plane codepoints are compared exactly:
+	/// <see cref="char.ToLowerInvariant(char)"/> operates on single UTF-16 code units and has no case mapping to apply
+	/// to a surrogate.
+	/// </remarks>
+	internal static bool CodepointsEqual(ReadOnlySpan<char> left, int leftIndex, int leftLength, ReadOnlySpan<char> right, int rightIndex, int rightLength)
+	{
+		if (leftLength != rightLength)
+		{
+			return false;
+		}
+
+		return leftLength == 2
+			? left[leftIndex] == right[rightIndex] && left[leftIndex + 1] == right[rightIndex + 1]
+			: char.ToLowerInvariant(left[leftIndex]) == char.ToLowerInvariant(right[rightIndex]);
 	}
 
 	/// <summary>

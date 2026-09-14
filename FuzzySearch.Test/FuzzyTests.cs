@@ -515,6 +515,99 @@ public class FuzzyTests
 
 	#endregion
 
+	#region Surrogate Pair Tests
+
+	// U+1F601 GRINNING FACE WITH SMILING EYES, a supplementary-plane character stored as the
+	// surrogate pair U+D83D U+DE01.
+	private const string Emoji = "😁";
+	private const string LoneHighSurrogate = "\uD83D";
+	private const string LoneLowSurrogate = "\uDE01";
+
+	[TestMethod]
+	public void Contains_LoneHighSurrogatePattern_DoesNotMatchHalfOfASurrogatePair()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{Emoji}y", LoneHighSurrogate);
+
+		// Assert
+		Assert.IsFalse(result, "An unpaired high surrogate must not match the leading half of an unrelated surrogate pair.");
+	}
+
+	[TestMethod]
+	public void Contains_LoneLowSurrogatePattern_DoesNotMatchHalfOfASurrogatePair()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{Emoji}y", LoneLowSurrogate);
+
+		// Assert
+		Assert.IsFalse(result, "An unpaired low surrogate must not match the trailing half of an unrelated surrogate pair.");
+	}
+
+	[TestMethod]
+	public void Contains_WithScore_LoneHighSurrogatePattern_IsNotReportedAsPresent()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{Emoji}y", LoneHighSurrogate, out _);
+
+		// Assert
+		Assert.IsFalse(result, "The scoring overload must agree that an unpaired surrogate is not present.");
+	}
+
+	[TestMethod]
+	public void Contains_SurrogatePairPattern_DoesNotMatchALoneSurrogateInTheSubject()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{LoneHighSurrogate}y", Emoji);
+
+		// Assert
+		Assert.IsFalse(result, "A whole surrogate pair must not match an unpaired surrogate in the subject.");
+	}
+
+	[TestMethod]
+	public void Contains_SurrogatePairPattern_MatchesTheSameSurrogatePair()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{Emoji}y", Emoji);
+
+		// Assert
+		Assert.IsTrue(result, "A surrogate pair should still match itself.");
+	}
+
+	[TestMethod]
+	public void Contains_LoneSurrogatePattern_MatchesTheSameLoneSurrogate()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{LoneHighSurrogate}y", LoneHighSurrogate);
+
+		// Assert
+		Assert.IsTrue(result, "An unpaired surrogate should still match the same unpaired surrogate.");
+	}
+
+	[TestMethod]
+	public void Contains_PatternSpanningASurrogatePair_MatchesTheSurroundingCharacters()
+	{
+		// Act
+		bool result = Fuzzy.Contains($"x{Emoji}y", $"x{Emoji}y");
+
+		// Assert
+		Assert.IsTrue(result, "A supplementary-plane character adjacent to other matchable characters should match in sequence.");
+	}
+
+	[TestMethod]
+	public void Contains_SurrogatePairPattern_DoesNotMatchADifferentSurrogatePair()
+	{
+		// Arrange: U+1F600 GRINNING FACE shares its high surrogate with U+1F601 but differs in the low surrogate.
+		string otherEmoji = "😀";
+
+		// Act
+		bool result = Fuzzy.Contains($"x{otherEmoji}y", Emoji);
+
+		// Assert
+		Assert.IsFalse(result, "Two supplementary-plane characters sharing a high surrogate are still different characters.");
+	}
+
+	#endregion
+
 	#region Integration Tests
 
 	[TestMethod]
