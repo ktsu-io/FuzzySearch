@@ -60,6 +60,24 @@ public static class Fuzzy
 		ContainsCore(NormalizeForComparison(subject), NormalizeForComparison(pattern));
 
 	/// <summary>
+	/// Determines whether the specified subject contains all characters from the pattern in sequence, and calculates a match score.
+	/// </summary>
+	/// <param name="subject">The span of characters to search within.</param>
+	/// <param name="pattern">The sequence of characters to search for.</param>
+	/// <param name="outScore">
+	/// When this method returns, contains the calculated match score if the pattern is found; otherwise,
+	/// the score reflects how close the match was.
+	/// </param>
+	/// <returns>
+	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
+	/// </returns>
+	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out int outScore)
+	{
+		outScore = CalculateScore(subject, pattern, out bool wholePatternPresent);
+		return wholePatternPresent;
+	}
+
+	/// <summary>
 	/// Determines whether the specified subject contains all characters from the pattern in sequence, assuming both
 	/// spans are already normalized to a common form.
 	/// </summary>
@@ -91,24 +109,6 @@ public static class Fuzzy
 		}
 
 		return patternIdx == patternLength;
-	}
-
-	/// <summary>
-	/// Determines whether the specified subject contains all characters from the pattern in sequence, and calculates a match score.
-	/// </summary>
-	/// <param name="subject">The span of characters to search within.</param>
-	/// <param name="pattern">The sequence of characters to search for.</param>
-	/// <param name="outScore">
-	/// When this method returns, contains the calculated match score if the pattern is found; otherwise,
-	/// the score reflects how close the match was.
-	/// </param>
-	/// <returns>
-	/// <c>true</c> if the subject contains all characters from the pattern in sequence, or the pattern is empty and the subject is not; otherwise, <c>false</c>.
-	/// </returns>
-	public static bool Contains(ReadOnlySpan<char> subject, ReadOnlySpan<char> pattern, out int outScore)
-	{
-		outScore = CalculateScore(subject, pattern, out bool wholePatternPresent);
-		return wholePatternPresent;
 	}
 
 	/// <summary>
